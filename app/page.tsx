@@ -1,101 +1,189 @@
-import Image from "next/image";
+'use client'
+
+import { useState } from "react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Textarea } from "@/components/ui/textarea"
+import { ChangeEvent } from 'react'
+import { SummaryDialog } from "@/components/summary-dialog"
+
+// Define a type for our notes
+interface Note {
+  id: number
+  title: string
+  content: string
+  date: string
+}
 
 export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+  // State to store our notes and form inputs
+  const [notes, setNotes] = useState<Note[]>([])
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [isSummarizing, setIsSummarizing] = useState(false)
+  const [summaryDialog, setSummaryDialog] = useState({
+    isOpen: false,
+    summary: '',
+    error: ''
+  })
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  // Function to handle adding a new note
+  const handleAddNote = () => {
+    // Don't add empty notes
+    if (!title.trim() || !content.trim()) return
+
+    if (editingId) {
+      // If we're editing, update the existing note
+      setNotes(notes.map(note => 
+        note.id === editingId 
+          ? { ...note, title, content } 
+          : note
+      ))
+      setEditingId(null) // Clear editing state
+    } else {
+      // If we're adding a new note
+      const newNote = {
+        id: Date.now(),
+        title,
+        content,
+        date: new Date().toLocaleDateString()
+      }
+      setNotes([...notes, newNote])
+    }
+    
+    // Clear the form
+    setTitle('')
+    setContent('')
+  }
+
+  // Add function to handle editing
+  const handleEdit = (note: Note) => {
+    setTitle(note.title)
+    setContent(note.content)
+    setEditingId(note.id)
+  }
+
+  // Add function to handle deletion
+  const handleDelete = (id: number) => {
+    setNotes(notes.filter(note => note.id !== id))
+  }
+
+  // Add function to handle summarization
+  const handleSummarize = async (note: Note) => {
+    setIsSummarizing(true)
+    setSummaryDialog({ isOpen: true, summary: '', error: '' })
+
+    try {
+      const response = await fetch('/api/summarize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: note.content })
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.error)
+      setSummaryDialog(prev => ({ ...prev, summary: data.summary }))
+    } catch (error) {
+      setSummaryDialog(prev => ({ ...prev, error: 'Failed to generate summary' }))
+    } finally {
+      setIsSummarizing(false)
+    }
+  }
+
+  return (
+    <div className="container mx-auto p-4 max-w-4xl">
+      {/* Note Input Section */}
+      <div className="space-y-4 mb-8">
+        <h1 className="text-2xl font-bold">My Notes</h1>
+        
+        <div className="space-y-4">
+          <Input
+            placeholder="Note Title"
+            value={title}
+            onChange={(e: ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
+          />
+          
+          <Textarea
+            placeholder="Write your note here..."
+            value={content}
+            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setContent(e.target.value)}
+            className="min-h-[100px]"
+          />
+          
+          <Button onClick={handleAddNote}>
+            {editingId ? 'Update Note' : 'Add Note'}
+          </Button>
+          {editingId && (
+            <Button 
+              variant="outline" 
+              onClick={() => {
+                setEditingId(null)
+                setTitle('')
+                setContent('')
+              }}
+              className="ml-2"
+            >
+              Cancel Edit
+            </Button>
+          )}
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+      </div>
+
+      {/* Notes Display Section */}
+      <div className="grid gap-4 md:grid-cols-2">
+        {notes.map((note) => (
+          <Card key={note.id}>
+            <CardHeader>
+              <CardTitle>{note.title}</CardTitle>
+              <CardDescription>{note.date}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <p className="whitespace-pre-wrap">{note.content}</p>
+              <div className="flex gap-2 mt-4">
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handleEdit(note)}
+                >
+                  Edit
+                </Button>
+                <Button 
+                  variant="outline" 
+                  size="sm" 
+                  onClick={() => handleSummarize(note)}
+                  disabled={isSummarizing}
+                >
+                  {isSummarizing ? (
+                    <>
+                      <span className="animate-spin mr-2">⭮</span> 
+                      Summarizing...
+                    </>
+                  ) : (
+                    'Summarize'
+                  )}
+                </Button>
+                <Button 
+                  variant="destructive" 
+                  size="sm" 
+                  onClick={() => handleDelete(note.id)}
+                >
+                  Delete
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
+      <SummaryDialog 
+        isOpen={summaryDialog.isOpen}
+        onClose={() => setSummaryDialog(prev => ({ ...prev, isOpen: false }))}
+        summary={summaryDialog.summary}
+        isLoading={isSummarizing}
+        error={summaryDialog.error}
+      />
     </div>
-  );
+  )
 }
