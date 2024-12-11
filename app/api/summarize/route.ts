@@ -1,5 +1,5 @@
 // Import the OpenAI library to interact with the OpenAI API
-import OpenAI from 'openai';
+import { OpenAI } from 'openai';
 import { NextResponse } from 'next/server';
 
 // Initialize OpenAI client with configuration
@@ -14,7 +14,7 @@ export async function POST(request: Request) {
 
     if (!content) {
       return NextResponse.json(
-        { error: 'Note content is required' },
+        { error: 'Content is required' },
         { status: 400 }
       );
     }

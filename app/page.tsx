@@ -1,24 +1,24 @@
 'use client'
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { supabase } from "@/lib/supabase"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
-import { ChangeEvent } from 'react'
 import { SummaryDialog } from "@/components/summary-dialog"
+import { OpenAI } from 'openai';
 
-// Define a type for our notes
 interface Note {
   id: number
   title: string
   content: string
-  date: string
-  summary?: string
+  created_at: Date | string // Can be either a Date object or ISO string timestamp
+  summary?: string | null
+  user_id?: string | null
 }
 
 export default function Home() {
-  // State to store our notes and form inputs
   const [notes, setNotes] = useState<Note[]>([])
   const [title, setTitle] = useState('')
   const [content, setContent] = useState('')
@@ -30,177 +30,266 @@ export default function Home() {
     error: ''
   })
 
-  // Function to handle adding a new note
-  const handleAddNote = () => {
-    // Don't add empty notes
-    if (!title.trim() || !content.trim()) return
+  // Fetch notes on component mount
+  useEffect(() => {
+    fetchNotes()
+  }, [])
 
-    if (editingId) {
-      // If we're editing, update the existing note
-      setNotes(notes.map(note => 
-        note.id === editingId 
-          ? { ...note, title, content } 
-          : note
-      ))
-      setEditingId(null) // Clear editing state
-    } else {
-      // If we're adding a new note
-      const newNote = {
-        id: Date.now(),
-        title,
-        content,
-        date: new Date().toLocaleDateString()
-      }
-      setNotes([...notes, newNote])
+  async function fetchNotes() {
+    const { data, error } = await supabase
+      .from('notes')
+      .select('*')
+      .order('created_at', { ascending: false })
+
+    if (error) {
+      console.error('Error fetching notes:', error)
+      return
     }
-    
-    // Clear the form
-    setTitle('')
-    setContent('')
+
+    setNotes(data || [])
   }
 
-  // Add function to handle editing
-  const handleEdit = (note: Note) => {
-    setTitle(note.title)
-    setContent(note.content)
-    setEditingId(note.id)
-  }
+  async function handleAddNote() {
+    console.log('Starting handleAddNote...');
+    console.log('Current state:', { title, content, editingId });
 
-  // Add function to handle deletion
-  const handleDelete = (id: number) => {
-    setNotes(notes.filter(note => note.id !== id))
-  }
-
-  // Add function to handle summarization
-  const handleSummarize = async (note: Note) => {
-    setIsSummarizing(true)
-    setSummaryDialog({ isOpen: true, summary: '', error: '' })
+    // 1. First validate inputs
+    if (!title.trim() || !content.trim()) {
+      alert('Please fill in both title and content');
+      return;
+    }
 
     try {
+      if (editingId) {
+        // Updating existing note
+        const { data, error } = await supabase
+          .from('notes')
+          .update({ title, content })
+          .eq('id', editingId)
+          .select();
+
+        if (error) {
+          console.error('Supabase error:', error);
+          throw new Error(error.message);
+        }
+
+      } else {
+        // Creating new note
+        const { data, error } = await supabase
+          .from('notes')
+          .insert([{ title, content }])
+          .select();
+
+        if (error) {
+          console.error('Supabase error:', error);
+          throw new Error(error.message);
+        }
+      }
+
+      // If successful, refresh notes and clear form
+      await fetchNotes();
+      setTitle('');
+      setContent('');
+      setEditingId(null);
+
+    } catch (error) {
+      // Improved error handling
+      console.error('Error saving note:', error);
+      alert(error instanceof Error ? error.message : 'Failed to save note. Please try again.');
+    }
+  }
+
+  async function handleDelete(id: number) {
+    const { error } = await supabase
+      .from('notes')
+      .delete()
+      .eq('id', id)
+
+    if (error) {
+      console.error('Error deleting note:', error)
+      return
+    }
+
+    fetchNotes()
+  }
+
+  async function handleSummarize(note: Note) {
+    // Start loading state
+    setIsSummarizing(true);
+    setSummaryDialog({ isOpen: true, summary: '', error: '' });
+    // Set the editingId to the current note's id
+    setEditingId(note.id);
+
+    try {
+      // Make API call to your summary endpoint
       const response = await fetch('/api/summarize', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: note.content })
-      })
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ content: note.content }),
+      });
 
-      const data = await response.json()
-      if (!response.ok) throw new Error(data.error)
-      setSummaryDialog(prev => ({ ...prev, summary: data.summary }))
+      if (!response.ok) {
+        throw new Error('Failed to generate summary');
+      }
+
+      const data = await response.json();
+
+      // Update dialog with the summary
+      setSummaryDialog({
+        isOpen: true,
+        summary: data.summary,
+        error: ''
+      });
+
     } catch (error) {
-      setSummaryDialog(prev => ({ ...prev, error: 'Failed to generate summary' }))
+      console.error('Error generating summary:', error);
+      setSummaryDialog({
+        isOpen: true,
+        summary: '',
+        error: 'Failed to generate summary. Please try again.'
+      });
+      // Clear the editingId if there's an error
+      setEditingId(null);
     } finally {
-      setIsSummarizing(false)
+      setIsSummarizing(false);
     }
   }
 
-  // In your existing Home component, add a function to handle saving summaries
-  const handleSaveSummary = (summary: string) => {
-    // Find the note being summarized and update it
-    if (notes.length > 0) {
-      const updatedNotes = notes.map(note => ({
-        ...note,
-        summary: summary // Add summary to the note
-      }));
-      setNotes(updatedNotes);
-      
-      // Close the dialog
-      setSummaryDialog(prev => ({ ...prev, isOpen: false }));
+  async function handleSaveSummary(summary: string) {
+    if (!editingId) {
+      console.error('No note selected for summary');
+      alert('Error: No note selected');
+      return;
+    }
+
+    if (!summary.trim()) {
+      alert('Summary cannot be empty');
+      return;
+    }
+
+    try {
+      // Update the note in Supabase with the new summary
+      const { error } = await supabase
+        .from('notes')
+        .update({ summary })
+        .eq('id', editingId);
+
+      if (error) {
+        throw new Error(error.message);
+      }
+
+      // Close the dialog and refresh notes
+      setSummaryDialog({ isOpen: false, summary: '', error: '' });
+      setEditingId(null); // Clear the editingId after successful save
+      await fetchNotes();
+
+    } catch (error) {
+      console.error('Error saving summary:', error);
+      alert('Failed to save summary. Please try again.');
     }
   }
+
+  function handleCloseDialog() {
+    setSummaryDialog({ isOpen: false, summary: '', error: '' });
+    setEditingId(null);
+  }
+
+  // Rest of your component remains the same
+  // ... (keep your existing JSX and other functions)
 
   return (
-    <div className="container mx-auto p-4 max-w-4xl">
-      {/* Note Input Section */}
-      <div className="space-y-4 mb-8">
-        <h1 className="text-2xl font-bold">My Notes</h1>
+    <main className="container mx-auto p-4 max-w-4xl">
+      <div className="mb-8">
+        <h1 className="text-4xl font-bold mb-4">Notes App</h1>
         
-        <div className="space-y-4">
-          <Input
-            placeholder="Note Title"
-            value={title}
-            onChange={(e: ChangeEvent<HTMLInputElement>) => setTitle(e.target.value)}
-          />
-          
-          <Textarea
-            placeholder="Write your note here..."
-            value={content}
-            onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setContent(e.target.value)}
-            className="min-h-[100px]"
-          />
-          
-          <Button onClick={handleAddNote}>
-            {editingId ? 'Update Note' : 'Add Note'}
-          </Button>
-          {editingId && (
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setEditingId(null)
-                setTitle('')
-                setContent('')
-              }}
-              className="ml-2"
-            >
-              Cancel Edit
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Notes Display Section */}
-      <div className="grid gap-4 md:grid-cols-2">
-        {notes.map((note) => (
-          <Card key={note.id}>
-            <CardHeader>
-              <CardTitle>{note.title}</CardTitle>
-              <CardDescription>{note.date}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <p className="whitespace-pre-wrap">{note.content}</p>
-              <div className="flex gap-2 mt-4">
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => handleEdit(note)}
-                >
-                  Edit
-                </Button>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
-                  onClick={() => handleSummarize(note)}
-                  disabled={isSummarizing}
-                >
-                  {isSummarizing ? (
-                    <>
-                      <span className="animate-spin mr-2">⭮</span> 
-                      Summarizing...
-                    </>
-                  ) : (
-                    'Summarize'
-                  )}
-                </Button>
-                <Button 
-                  variant="destructive" 
-                  size="sm" 
-                  onClick={() => handleDelete(note.id)}
-                >
-                  Delete
-                </Button>
+        {/* Add Note Form */}
+        <Card className="mb-8">
+          <CardHeader>
+            <CardTitle>{editingId ? 'Edit Note' : 'Add New Note'}</CardTitle>
+            <CardDescription>
+              {editingId ? 'Update your note below' : 'Create a new note by filling out the form below'}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div>
+                <Input
+                  placeholder="Note title"
+                  value={title}
+                  onChange={(e) => setTitle(e.target.value)}
+                />
               </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              <div>
+                <Textarea
+                  placeholder="Note content"
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                />
+              </div>
+              <Button onClick={handleAddNote}>
+                {editingId ? 'Update Note' : 'Add Note'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-      <SummaryDialog 
-        isOpen={summaryDialog.isOpen}
-        onClose={() => setSummaryDialog(prev => ({ ...prev, isOpen: false }))}
-        summary={summaryDialog.summary}
-        isLoading={isSummarizing}
-        error={summaryDialog.error}
-        onSave={handleSaveSummary}
-      />
-    </div>
+        {/* Notes List */}
+        <div className="space-y-4">
+          {notes.map((note) => (
+            <Card key={note.id}>
+              <CardHeader>
+                <CardTitle>{note.title}</CardTitle>
+                <CardDescription>{new Date(note.created_at).toLocaleDateString()}</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <p className="mb-4">{note.content}</p>
+                {note.summary && (
+                  <div className="bg-secondary/50 p-4 rounded-lg mb-4">
+                    <p className="font-medium mb-1">Summary:</p>
+                    <p className="text-sm">{note.summary}</p>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setTitle(note.title);
+                      setContent(note.content);
+                      setEditingId(note.id);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => handleSummarize(note)}
+                  >
+                    Summarize
+                  </Button>
+                  <Button
+                    variant="destructive"
+                    onClick={() => handleDelete(note.id)}
+                  >
+                    Delete
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        {/* Summary Dialog */}
+        <SummaryDialog
+  isOpen={summaryDialog.isOpen}
+  onClose={handleCloseDialog}  // Use the new handler
+  summary={summaryDialog.summary}
+  error={summaryDialog.error}
+  isLoading={isSummarizing}
+  onSave={handleSaveSummary}
+/>
+      </div>
+    </main>
   )
 }
