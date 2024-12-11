@@ -6,6 +6,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog"
 import { Spinner } from "@/components/ui/spinner"
+import { Button } from "./ui/button"
 
 interface SummaryDialogProps {
   isOpen: boolean
@@ -13,6 +14,7 @@ interface SummaryDialogProps {
   summary: string | null
   isLoading: boolean
   error?: string
+  onSave?: (summary: string) => void
 }
 
 export function SummaryDialog({ 
@@ -20,7 +22,8 @@ export function SummaryDialog({
   onClose, 
   summary, 
   isLoading, 
-  error 
+  error,
+  onSave 
 }: SummaryDialogProps) {
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -52,6 +55,18 @@ export function SummaryDialog({
             </p>
           )}
         </div>
+
+        {/* Add save button section */}
+        {!isLoading && !error && summary && onSave && (
+          <div className="flex justify-end mt-4">
+            <Button 
+              onClick={() => onSave(summary)}
+              className="w-full sm:w-auto"
+            >
+              Save Summary
+            </Button>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   )

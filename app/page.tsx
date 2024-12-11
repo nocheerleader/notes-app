@@ -14,6 +14,7 @@ interface Note {
   title: string
   content: string
   date: string
+  summary?: string
 }
 
 export default function Home() {
@@ -89,6 +90,21 @@ export default function Home() {
       setSummaryDialog(prev => ({ ...prev, error: 'Failed to generate summary' }))
     } finally {
       setIsSummarizing(false)
+    }
+  }
+
+  // In your existing Home component, add a function to handle saving summaries
+  const handleSaveSummary = (summary: string) => {
+    // Find the note being summarized and update it
+    if (notes.length > 0) {
+      const updatedNotes = notes.map(note => ({
+        ...note,
+        summary: summary // Add summary to the note
+      }));
+      setNotes(updatedNotes);
+      
+      // Close the dialog
+      setSummaryDialog(prev => ({ ...prev, isOpen: false }));
     }
   }
 
@@ -183,6 +199,7 @@ export default function Home() {
         summary={summaryDialog.summary}
         isLoading={isSummarizing}
         error={summaryDialog.error}
+        onSave={handleSaveSummary}
       />
     </div>
   )
